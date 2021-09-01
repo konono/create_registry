@@ -62,16 +62,12 @@
       ansible.builtin.copy:
         src: '/tmp/server.crt'
         dest: './certs/server.crt'
-        owner: 'root'
-        group: 'root'
         mode: 0600
 
     - name: 'Copy server SSL private key'
       ansible.builtin.copy:
         src: '/tmp/server.key'
         dest: './certs/server.key'
-        owner: 'root'
-        group: 'root'
         mode: 0600
 
     - name: 'Create auth directory'
@@ -89,8 +85,6 @@
         setype: 'svirt_sandbox_file_t'
         username: 'admin'
         password: 'P@ssw0rd'
-        owner: 'root'
-        group: 'root'
         mode: 0640
         crypt_scheme: 'bcrypt'
 
