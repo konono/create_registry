@@ -1,0 +1,117 @@
+---
+
+- hosts: 'localhost'
+  connection: 'local'
+  gather_facts: true
+  tasks:
+    - name: 'Generate private keys'
+      openssl_privatekey:
+        path: '/tmp/server.key'
+
+    - name: 'Generate CSRs standalone'
+      community.crypto.openssl_csr:
+        path: '/tmp/server.csr'
+        privatekey_path: '/tmp/server.key'
+        common_name: 'localhost'
+        subject_alt_name: 'DNS:localhost'
+        key_usage:
+          - 'keyEncipherment'
+          - 'dataEncipherment'
+        extended_key_usage:
+          - 'serverAuth'
+
+    - name: 'Generate CA key'
+      community.crypto.openssl_privatekey:
+        path: '/tmp/root.key'
+
+    - name: 'Generate CA CSR'
+      community.crypto.openssl_csr:
+        path: '/tmp/root.csr'
+        privatekey_path: '/tmp/root.key'
+        common_name: 'registry'
+        organization_name: 'registry'
+        country_name: 'JP'
+        basic_constraints: 'CA:TRUE'
+
+    - name: 'Generate CA certificate'
+      community.crypto.x509_certificate:
+        path: '/tmp/root.crt'
+        csr_path: '/tmp/root.csr'
+        privatekey_path: '/tmp/root.key'
+        provider: 'selfsigned'
+
+    - name: 'Generate certificates'
+      community.crypto.x509_certificate:
+        path: '/tmp/server.crt'
+        csr_path: '/tmp/server.csr'
+        privatekey_path: '/tmp/server.key'
+        provider: 'ownca'
+        ownca_path: '/tmp/root.crt'
+        ownca_privatekey_path: '/tmp/root.key'
+        ownca_not_after: '+3650d'
+
+    - name: 'Create certs directory'
+      ansible.builtin.file:
+        path: './certs/'
+        state: 'directory'
+        setype: 'svirt_sandbox_file_t'
+        recurse: true
+        mode: 0755
+
+    - name: 'Copy server SSL certificate'
+      ansible.builtin.copy:
+        src: '/tmp/server.crt'
+        dest: './certs/server.crt'
+        mode: 0600
+
+    - name: 'Copy server SSL private key'
+      ansible.builtin.copy:
+        src: '/tmp/server.key'
+        dest: './certs/server.key'
+        mode: 0600
+
+    - name: 'Create auth directory'
+      ansible.builtin.file:
+        path: './auth/'
+        state: 'directory'
+        setype: 'svirt_sandbox_file_t'
+        recurse: true
+        mode: 0755
+
+    - name: 'Add a user to a password file and ensure permissions are set'
+      community.general.htpasswd:
+        path: './auth/htpasswd'
+        state: 'present'
+        setype: 'svirt_sandbox_file_t'
+        username: 'admin'
+        password: 'P@ssw0rd'
+        mode: 0640
+        crypt_scheme: 'bcrypt'
+
+    - name: 'Create registry directory'
+      ansible.builtin.file:
+        path: './registry'
+        state: 'directory'
+        setype: 'svirt_sandbox_file_t'
+        recurse: true
+        mode: 0755
+
+    - name: 'Start container registry'
+      community.docker.docker_container:
+        name: 'cregistry'
+        image: 'registry:2'
+        state: 'started'
+        restart: true
+        ports:
+          - "5000:5000"
+        volumes:
+          - './auth:/auth'
+          - './certs:/certs'
+          - './registry:/var/lib/registry'
+        env:
+          REGISTRY_AUTH: 'htpasswd'
+          REGISTRY_AUTH_HTPASSWD_REALM: 'Registry Realm'
+          REGISTRY_AUTH_HTPASSWD_PATH: '/auth/htpasswd'
+          REGISTRY_HTTP_ADDR: '0.0.0.0:5000'
+          REGISTRY_HTTP_TLS_CERTIFICATE: '/certs/server.crt'
+          REGISTRY_HTTP_TLS_KEY: '/certs/server.key'
